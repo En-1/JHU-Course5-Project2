@@ -1,0 +1,93 @@
+---
+title: "HURRICANE and TORNADO are the most dangerous natural disaster in the USA"
+author: "E. Slavyaninov"
+date: '13 декабря 2018 г '
+output: html_document
+---
+# Synopsis
+In this project I analysed data from the U.S. National Oceanic and Atmospheric Administration's storm database, that tracks characteristics of major storms and weather events in the United States. The goal was to answer the question, what types of events were the most harmful for population health and for the economy. During processing I detected and transform an outlier - the economic damage from the flood in California in 2006. As a result, the most harmful event with respect to population health turned out TORNADO, the greatest economic consequences were from HURRICANE.
+
+# Loading and Processing Data
+
+First, load library tidyverse, download date (if it wasn't done before) and read it.
+
+```{r message=FALSE}
+library(tidyverse)
+if (!any(grepl("StormData.csv.bz2",list.files()))) {
+    File="https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+    download.file(File, "StormData.csv.bz2")
+} 
+StormData<-read_csv("StormData.csv.bz2")
+```
+In preprocessing I had to decide how to assess the overall economic and human damage from the events. For casualty damage I added number of fatalities and injures; for economic,  I added property damage and crop damage with respect to units in distinct column (K = 10^3, M = 10^6, B - 10^6).
+
+```{r}
+StormData$Year<-as.numeric(format(as.Date(StormData$BGN_DATE,"%m/%d/%Y"), "%Y"))
+mutate(StormData, TotEconDMG=case_when(PROPDMGEXP=="K"~10^3, PROPDMGEXP=="M"~10^6, 
+    PROPDMGEXP=="B"~10^9,TRUE~0)* PROPDMG+case_when(CROPDMGEXP=="K"~10^3, CROPDMGEXP=="M"~10^6, 
+    CROPDMGEXP=="B"~10^9, TRUE ~0)*CROPDMG, TotCasDMG=FATALITIES+INJURIES) %>%
+    select(STATE,Year,EVTYPE,TotEconDMG,TotCasDMG)->StormDataProc
+```
+
+Сheck maximum values for casualty and economic damage
+
+```{r}
+StormDataProc %>% arrange(-TotCasDMG)
+StormDataProc %>% arrange(-TotEconDMG)
+```
+The first entry in economic damage looked pretty big, so I googled the economic damage from the flood in California in 2006, and found it was about 100 mln $, not 100 bln. In my opinion it was outlier (becouse of wrong unit), so I edited it. Double check after that
+
+```{r}
+StormDataProc$TotEconDMG[which.max(StormDataProc$TotEconDMG)]<-
+    StormDataProc$TotEconDMG[which.max(StormDataProc$TotEconDMG)]/10^3
+StormDataProc %>% arrange(-TotEconDMG)
+```
+
+#Results
+
+Summarize top 4 types of damages with the largest values. I put them in the tables (TopCasDMG and TopEconDMG) and brought to the screen.
+
+```{r}
+StormDataProc %>% group_by(EVTYPE) %>% summarise(CasDMG=sum(TotCasDMG),EconDMG=sum(TotEconDMG))%>%
+    select(EVTYPE, CasDMG) %>% mutate(EVTYPE2 = EVTYPE) %>% arrange(-CasDMG) %>% head(4)->TopCasDMG
+StormDataProc %>% group_by(EVTYPE) %>% summarise(CasDMG=sum(TotCasDMG),EconDMG=sum(TotEconDMG))%>%
+    select(EVTYPE, EconDMG)%>% mutate(EVTYPE2 = EVTYPE) %>% arrange(-EconDMG) %>% head(4)->TopEconDMG
+TopCasDMG[,1:2]
+TopEconDMG[,1:2]
+```
+**It is brief answer to main question of the analysis: HURRICANE is number 1 (with a large margin) for casualty  damage and TORNADO  for economic damage.**
+
+For a broader analysis I made some graphics of top types of events. 
+
+* *Boxplot for economic damage on the logarithmic scale*
+
+```{r, message=FALSE, warning=FALSE}
+StormDataProc %>% left_join(TopEconDMG)%>% mutate(TypeOfEvent=if_else(is.na(EVTYPE2), "OTHER", EVTYPE2)) %>%
+    group_by(Year,TypeOfEvent) %>% summarise(TotEconDMG=sum(TotEconDMG)/10^6) %>%
+    ggplot(aes(TypeOfEvent, TotEconDMG))+geom_boxplot()+scale_y_log10()+ylab("Total economic damage, mln $")
+```
+
+HURRICANE has the largest mean, lower and upper interquartile range, maximum value. It is number 1. 
+
+* *Time series plot for casualties damage.*
+
+```{r, message=FALSE}
+StormDataProc %>% left_join(TopCasDMG)%>% mutate(TypeOfEvent=if_else(is.na(EVTYPE2), "OTHER", EVTYPE2)) %>%  
+    group_by(Year,TypeOfEvent) %>% summarise(TotCasDMG=sum(TotCasDMG)) %>% 
+    ggplot(aes(Year,TotCasDMG))+geom_line(aes(col=TypeOfEvent))+ylab("Total human losses")
+```
+
+TORNADO was the most harmful for most years but it seems that until the mid-eighties most other events were not logged. Lets check economic and casualties damage which happened after 1985.
+
+```{r}
+StormDataProc %>% filter(Year>1985) %>% group_by(EVTYPE) %>% 
+    summarise(TotEconDMG=sum(TotEconDMG)) %>% arrange(-TotEconDMG) %>% head(5)
+
+StormDataProc %>% filter(Year>1985) %>% group_by(EVTYPE) %>% 
+    summarise(TotCasDMG=sum(TotCasDMG)) %>% arrange(-TotCasDMG) %>% head(5) 
+```
+
+**As can be seen from the new values, the most harmful types of events don't change.**
+
+
+
